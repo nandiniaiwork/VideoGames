@@ -5,11 +5,24 @@ import json
 import os
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # Change this in production!
+# Use environment variable for secret key in production, fallback for development
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
 # Load dataset
 DATA_PATH = "vgsales.csv"
-df = pd.read_csv(DATA_PATH)
+
+# Load dataset with error handling for deployment
+try:
+    df = pd.read_csv(DATA_PATH)
+except FileNotFoundError:
+    # If CSV not found, create empty dataframe with expected columns
+    print(f"Warning: {DATA_PATH} not found. Creating empty dataframe.")
+    df = pd.DataFrame(columns=['Name', 'Platform', 'Year', 'Genre', 'Publisher', 
+                               'NA_Sales', 'EU_Sales', 'JP_Sales', 'Other_Sales', 'Global_Sales'])
+except Exception as e:
+    print(f"Error loading {DATA_PATH}: {e}")
+    df = pd.DataFrame(columns=['Name', 'Platform', 'Year', 'Genre', 'Publisher', 
+                               'NA_Sales', 'EU_Sales', 'JP_Sales', 'Other_Sales', 'Global_Sales'])
 
 # Simple file-based user storage (in production, use a proper database)
 USERS_FILE = "users.json"
@@ -142,38 +155,51 @@ def logout():
 
 @app.route('/api/summary')
 def summary():
-    summary = {
-        "total_games": len(df),
-        "total_global_sales": df["Global_Sales"].sum(),
-        "top_genres": df["Genre"].value_counts().head(5).to_dict(),
-        "top_platforms": df["Platform"].value_counts().head(5).to_dict()
-    }
-    return jsonify(summary)
+    try:
+        summary_data = {
+            "total_games": len(df),
+            "total_global_sales": float(df["Global_Sales"].sum()) if "Global_Sales" in df.columns else 0.0,
+            "top_genres": df["Genre"].value_counts().head(5).to_dict() if "Genre" in df.columns else {},
+            "top_platforms": df["Platform"].value_counts().head(5).to_dict() if "Platform" in df.columns else {}
+        }
+        return jsonify(summary_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/overview')
 def overview():
     """API endpoint for dashboard overview statistics"""
-    total_sales = df["Global_Sales"].sum()
-    # Handle NaN values
-    if pd.isna(total_sales):
-        total_sales = 0.0
-    return jsonify({
-        "rows": len(df),
-        "columns": len(df.columns),
-        "total_global_sales": float(total_sales)
-    })
+    try:
+        total_sales = df["Global_Sales"].sum() if "Global_Sales" in df.columns else 0.0
+        # Handle NaN values
+        if pd.isna(total_sales):
+            total_sales = 0.0
+        return jsonify({
+            "rows": len(df),
+            "columns": len(df.columns),
+            "total_global_sales": float(total_sales)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/top-games')
 def top_games():
     """API endpoint for top games data"""
-    # Convert DataFrame to list of dictionaries
-    games = df.to_dict('records')
-    # Replace NaN values with None (which becomes null in JSON)
-    for game in games:
-        for key, value in game.items():
-            if pd.isna(value):
-                game[key] = None
-    return jsonify(games)
+    try:
+        # Convert DataFrame to list of dictionaries
+        games = df.to_dict('records')
+        # Replace NaN values with None (which becomes null in JSON)
+        for game in games:
+            for key, value in game.items():
+                if pd.isna(value):
+                    game[key] = None
+        return jsonify(games)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Get port from environment variable (for deployment) or use default 5000
+    port = int(os.environ.get('PORT', 5000))
+    # Only run in debug mode if explicitly set
+    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug)

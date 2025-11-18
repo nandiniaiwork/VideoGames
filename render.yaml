@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: video-game-sales
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
