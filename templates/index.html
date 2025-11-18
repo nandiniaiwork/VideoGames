@@ -1,0 +1,260 @@
+<!doctype html>
+<!--
+README (templates/index.html)
+- Drop this file into your Flask project's `templates` directory as `index.html`.
+- It references `/static/styles.css` and `/static/app.js` and uses Chart.js via CDN.
+- The page renders a responsive dashboard for video game sales with filters, charts, and a table.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Video Game Sales Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <!-- Chart.js CDN (no bundlers) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header" role="banner">
+      <div class="title-group">
+        <h1 id="site-title">Video Game Sales</h1>
+        <p class="subtitle">Explore global, platform, genre, and regional trends</p>
+      </div>
+      <nav class="toolbar" aria-label="Dashboard toolbar">
+        {% if user_name %}
+        <div class="user-info">
+          <span class="user-name">👤 {{ user_name }}</span>
+        </div>
+        {% endif %}
+        <button id="refreshBtn" class="btn" aria-label="Refresh data">↻ Refresh</button>
+
+        <div class="toggle">
+          <input type="checkbox" id="darkModeToggle" aria-label="Toggle dark mode" />
+          <label for="darkModeToggle" class="toggle-label">Dark</label>
+        </div>
+
+        <button id="exportCsvBtn" class="btn btn-accent" aria-label="Export filtered data to CSV">
+          ⤓ Export CSV
+        </button>
+
+        <a href="{{ url_for('logout') }}" class="btn btn-logout" aria-label="Logout">🚪 Logout</a>
+      </nav>
+    </header>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-messages">
+          {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main id="main" class="layout" role="main">
+      <!-- Filters Panel -->
+      <aside class="card" role="region" aria-labelledby="filters-title">
+        <div class="card-header">
+          <h2 id="filters-title">Filters</h2>
+          <button id="clearFiltersBtn" class="btn btn-ghost" aria-label="Clear all filters">Clear</button>
+        </div>
+        <div class="card-body filters">
+          <div class="form-group">
+            <label for="platformSelect">Platforms</label>
+            <select id="platformSelect" multiple aria-label="Select one or more platforms"></select>
+            <small class="hint">Ctrl/Cmd + click to select multiple</small>
+          </div>
+          <div class="form-group">
+            <label for="genreSelect">Genres</label>
+            <select id="genreSelect" multiple aria-label="Select one or more genres"></select>
+            <small class="hint">Ctrl/Cmd + click to select multiple</small>
+          </div>
+
+          <fieldset class="form-group" aria-labelledby="year-range-legend">
+            <legend id="year-range-legend">Year range</legend>
+            <div class="range-pair" role="group" aria-label="Year range sliders">
+              <input id="yearStartRange" type="range" min="1980" max="2025" value="1980" aria-label="Start year slider" />
+              <input id="yearEndRange" type="range" min="1980" max="2025" value="2025" aria-label="End year slider" />
+            </div>
+            <div class="number-pair">
+              <label for="yearStartInput" class="visually-hidden">Start year</label>
+              <input id="yearStartInput" type="number" min="1980" max="2025" value="1980" aria-label="Start year input" />
+              <span aria-hidden="true">–</span>
+              <label for="yearEndInput" class="visually-hidden">End year</label>
+              <input id="yearEndInput" type="number" min="1980" max="2025" value="2025" aria-label="End year input" />
+            </div>
+          </fieldset>
+        </div>
+        <div class="card-footer">
+          <small>Filters update charts and table instantly.</small>
+        </div>
+      </aside>
+
+      <!-- Overview Card -->
+      <section class="card" role="region" aria-labelledby="overview-title">
+        <div class="card-header">
+          <h2 id="overview-title">Dataset Overview</h2>
+        </div>
+        <div class="card-body" id="overviewCard" aria-busy="true">
+          <div class="loading">Loading overview…</div>
+          <div class="error hidden" role="alert"></div>
+          <div class="overview-grid hidden" aria-live="polite">
+            <div>
+              <div class="stat-label">Rows</div>
+              <div class="stat-value" id="overviewRows">—</div>
+            </div>
+            <div>
+              <div class="stat-label">Columns</div>
+              <div class="stat-value" id="overviewCols">—</div>
+            </div>
+            <div>
+              <div class="stat-label">Total Global Sales</div>
+              <div class="stat-value" id="overviewSales">—</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Top Games Table -->
+      <section class="card" role="region" aria-labelledby="top-games-title">
+        <div class="card-header">
+          <h2 id="top-games-title">Top Games</h2>
+          <div class="table-controls">
+            <label for="searchInput" class="visually-hidden">Search by game name</label>
+            <input id="searchInput" type="search" placeholder="Search by name…" aria-label="Search by game name" />
+            <div class="sort-controls" role="group" aria-label="Sort table">
+              <button id="sortSalesBtn" class="btn btn-ghost" aria-label="Sort by Global Sales">Sort by Sales</button>
+              <button id="sortYearBtn" class="btn btn-ghost" aria-label="Sort by Year">Sort by Year</button>
+            </div>
+          </div>
+        </div>
+        <div class="card-body" id="topGamesCard" aria-busy="true">
+          <div class="loading">Loading top games…</div>
+          <div class="error hidden" role="alert"></div>
+
+          <div class="table-wrap hidden">
+            <table class="data-table" aria-describedby="top-games-caption">
+              <caption id="top-games-caption">Top games matching current filters</caption>
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Platform</th>
+                  <th scope="col">Genre</th>
+                  <th scope="col" data-key="Year">Year</th>
+                  <th scope="col" data-key="Global_Sales">Global Sales</th>
+                </tr>
+              </thead>
+              <tbody id="topGamesTbody">
+                <!-- Rows injected by JS -->
+              </tbody>
+            </table>
+            <div class="pagination" role="navigation" aria-label="Table pagination">
+              <button class="btn btn-ghost" id="prevPageBtn" aria-label="Previous page">Prev</button>
+              <span id="pageInfo" aria-live="polite">Page 1 of 1</span>
+              <button class="btn btn-ghost" id="nextPageBtn" aria-label="Next page">Next</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Charts Grid -->
+      <section class="charts-grid">
+        <!-- Sales by Year (Line) -->
+        <section class="card" role="region" aria-labelledby="sales-year-title">
+          <div class="card-header">
+            <h2 id="sales-year-title">Global Sales by Year</h2>
+            <div class="inline-controls">
+              <input type="checkbox" id="rollingAvgToggle" aria-label="Toggle 3-year rolling average" />
+              <label for="rollingAvgToggle">3-yr rolling avg</label>
+            </div>
+          </div>
+          <div class="card-body" id="salesByYearCard" aria-busy="true">
+            <div class="loading">Loading sales by year…</div>
+            <div class="error hidden" role="alert"></div>
+            <div class="chart-wrap hidden">
+              <canvas id="salesByYearChart" aria-describedby="sales-year-desc"></canvas>
+              <p id="sales-year-desc" class="visually-hidden">
+                Line chart showing total global sales per year. Toggle shows 3-year rolling average.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Platforms (Bar) -->
+        <section class="card" role="region" aria-labelledby="platforms-title">
+          <div class="card-header">
+            <h2 id="platforms-title">Top Platforms</h2>
+          </div>
+          <div class="card-body" id="platformsCard" aria-busy="true">
+            <div class="loading">Loading platforms…</div>
+            <div class="error hidden" role="alert"></div>
+            <div class="chart-wrap hidden">
+              <canvas id="platformsChart" aria-describedby="platforms-desc"></canvas>
+              <p id="platforms-desc" class="visually-hidden">Bar chart of sales by platform.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Genres (Bar) -->
+        <section class="card" role="region" aria-labelledby="genres-title">
+          <div class="card-header">
+            <h2 id="genres-title">Genres</h2>
+          </div>
+          <div class="card-body" id="genresCard" aria-busy="true">
+            <div class="loading">Loading genres…</div>
+            <div class="error hidden" role="alert"></div>
+            <div class="chart-wrap hidden">
+              <canvas id="genresChart" aria-describedby="genres-desc"></canvas>
+              <p id="genres-desc" class="visually-hidden">Bar chart of sales by genre.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Regional (Pie) -->
+        <section class="card" role="region" aria-labelledby="regional-title">
+          <div class="card-header">
+            <h2 id="regional-title">Regional Distribution</h2>
+          </div>
+          <div class="card-body" id="regionalCard" aria-busy="true">
+            <div class="loading">Loading regional sales…</div>
+            <div class="error hidden" role="alert"></div>
+            <div class="chart-wrap hidden">
+              <canvas id="regionalChart" aria-describedby="regional-desc"></canvas>
+              <p id="regional-desc" class="visually-hidden">Pie chart of NA, EU, JP, and Other sales.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <noscript>
+      You need JavaScript enabled to view charts and interactive features.
+    </noscript>
+
+    <!-- App JS (module pattern, no bundler needed) -->
+    <script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
+    
+    <!-- Flash message auto-dismiss -->
+    <script>
+      // Auto-dismiss flash messages after 5 seconds
+      document.addEventListener('DOMContentLoaded', function() {
+        const flashMessages = document.querySelectorAll('.flash-message');
+        flashMessages.forEach(function(message) {
+          setTimeout(function() {
+            message.style.transition = 'opacity 0.3s, transform 0.3s';
+            message.style.opacity = '0';
+            message.style.transform = 'translateX(100%)';
+            setTimeout(function() {
+              message.remove();
+            }, 300);
+          }, 5000);
+        });
+      });
+    </script>
+  </body>
+  </html>
